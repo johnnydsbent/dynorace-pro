@@ -24,6 +24,8 @@ jobs:
         run: npm ci
       
       - name: Build frontend and server
+        env:
+          ELECTRON_BUILD: "true"
         run: npm run build
       
       - name: Verify build output
