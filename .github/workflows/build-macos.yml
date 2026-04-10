@@ -61,9 +61,7 @@ jobs:
       
       - name: Build macOS DMG
         working-directory: electron-build
-        run: npx electron-builder --mac dmg --x64
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac dmg --x64 --publish never
       
       - name: List release artifacts
         run: ls -lh electron-build/release/ || echo "No release dir"
