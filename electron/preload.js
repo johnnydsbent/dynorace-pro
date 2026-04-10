@@ -3,20 +3,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const obdApi = {
     listPorts: () => electron_1.ipcRenderer.invoke("obd:list-ports"),
-    connect: (portPath) => electron_1.ipcRenderer.invoke("obd:connect", portPath),
-    disconnect: () => electron_1.ipcRenderer.invoke("obd:disconnect"),
-    sendCommand: (command) => electron_1.ipcRenderer.invoke("obd:send-command", command),
-    startLiveData: () => electron_1.ipcRenderer.invoke("obd:start-live-data"),
-    stopLiveData: () => electron_1.ipcRenderer.invoke("obd:stop-live-data"),
-    onTelemetry: (callback) => {
+    connect: (portPath, carId) => electron_1.ipcRenderer.invoke("obd:connect", { portPath, carId }),
+    disconnect: (carId) => electron_1.ipcRenderer.invoke("obd:disconnect", { carId }),
+    sendCommand: (command, carId) => electron_1.ipcRenderer.invoke("obd:send-command", { command, carId }),
+    startLiveData: (carId) => electron_1.ipcRenderer.invoke("obd:start-live-data", { carId }),
+    stopLiveData: (carId) => electron_1.ipcRenderer.invoke("obd:stop-live-data", { carId }),
+    onTelemetry: (carId, callback) => {
+        const channel = `obd:telemetry:${carId}`;
         const handler = (_event, data) => callback(data);
-        electron_1.ipcRenderer.on("obd:telemetry", handler);
-        return () => electron_1.ipcRenderer.removeListener("obd:telemetry", handler);
+        electron_1.ipcRenderer.on(channel, handler);
+        return () => electron_1.ipcRenderer.removeListener(channel, handler);
     },
-    onData: (callback) => {
+    onData: (carId, callback) => {
+        const channel = `obd:data:${carId}`;
         const handler = (_event, data) => callback(data);
-        electron_1.ipcRenderer.on("obd:data", handler);
-        return () => electron_1.ipcRenderer.removeListener("obd:data", handler);
+        electron_1.ipcRenderer.on(channel, handler);
+        return () => electron_1.ipcRenderer.removeListener(channel, handler);
     },
 };
 electron_1.contextBridge.exposeInMainWorld("obd", obdApi);

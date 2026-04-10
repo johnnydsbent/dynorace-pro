@@ -51,12 +51,15 @@ Preferred communication style: Simple, everyday language.
 - **Integration**: Garage cars automatically load into race context on app start
 - **Access**: `/garage` route or "Garage" link in header
 
-### OBD-II Integration
+### OBD-II Integration (Dual Simultaneous)
 - **Protocol Support**: OBD-II (1996+ vehicles), basic OBD-I support planned
 - **Adapter Support**: Bluetooth ELM327 adapters (most common)
+- **Dual Connections**: Two independent OBD connections — one per lane (carId 1 or 2)
 - **Data Points**: Speed (MPH), RPM, Throttle Position, Gear (estimated), Coolant Temp
-- **Communication**: Serial-over-Bluetooth via node-serialport
+- **Communication**: Serial-over-Bluetooth via node-serialport (Map-based dual port management)
 - **PIDs Supported**: 010D (Speed), 010C (RPM), 0111 (Throttle), 0105 (Coolant Temp), 0104 (Engine Load)
+- **IPC Channels**: `obd:telemetry:1` and `obd:telemetry:2` for per-lane telemetry routing
+- **Race Modes**: Lane 1 OBD only, Lane 2 OBD only, Both OBD, or fully simulated
 
 ### Data Layer
 - **ORM**: Drizzle ORM with PostgreSQL dialect

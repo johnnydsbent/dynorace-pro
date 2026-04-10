@@ -13,13 +13,14 @@ import { Play, Settings, History, Gauge, Flag, Bluetooth, Car as CarIcon } from 
 
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { cars, dynoMachines, setDynoMachines, createRace, dataSource, obdConnected } = useRace();
+  const { cars, dynoMachines, setDynoMachines, createRace, dataSource, obdConnected, obdConnected2 } = useRace();
   const [selectedRaceType, setSelectedRaceType] = useState<RaceType | null>(null);
   const [leftCarId, setLeftCarId] = useState<string | null>(null);
   const [rightCarId, setRightCarId] = useState<string | null>(null);
   const [rollSpeed, setRollSpeed] = useState<20 | 40 | 60>(40);
 
-  const isOBDMode = dataSource === "obd" && obdConnected;
+  const isLeftOBD = dataSource === "obd" && obdConnected;
+  const isRightOBD = obdConnected2;
 
   useEffect(() => {
     if (cars.length > 0 && !leftCarId) {
@@ -31,15 +32,15 @@ export default function Home() {
   }, [cars, leftCarId, rightCarId]);
 
   useEffect(() => {
-    if (isOBDMode) {
-      if (dynoMachines[0]?.carId !== "obd-vehicle") {
+    if (isLeftOBD) {
+      if (dynoMachines[0]?.carId !== "obd-vehicle-1") {
         setDynoMachines([
-          { ...dynoMachines[0], carId: "obd-vehicle" },
+          { ...dynoMachines[0], carId: "obd-vehicle-1" },
           dynoMachines[1],
         ]);
       }
     } else {
-      if (dynoMachines[0]?.carId === "obd-vehicle") {
+      if (dynoMachines[0]?.carId === "obd-vehicle-1") {
         const firstGarageCarId = cars[0]?.id || null;
         setDynoMachines([
           { ...dynoMachines[0], carId: firstGarageCarId },
@@ -48,13 +49,42 @@ export default function Home() {
         setLeftCarId(firstGarageCarId);
       }
     }
-  }, [isOBDMode, cars, dynoMachines, setDynoMachines]);
+  }, [isLeftOBD, cars]);
+
+  useEffect(() => {
+    if (isRightOBD) {
+      if (dynoMachines[1]?.carId !== "obd-vehicle-2") {
+        setDynoMachines([
+          dynoMachines[0],
+          { ...dynoMachines[1], carId: "obd-vehicle-2" },
+        ]);
+      }
+    } else {
+      if (dynoMachines[1]?.carId === "obd-vehicle-2") {
+        const secondGarageCarId = cars[1]?.id || null;
+        setDynoMachines([
+          dynoMachines[0],
+          { ...dynoMachines[1], carId: secondGarageCarId },
+        ]);
+        setRightCarId(secondGarageCarId);
+      }
+    }
+  }, [isRightOBD, cars]);
 
   const leftCar = cars.find(c => c.id === leftCarId) || null;
   const rightCar = cars.find(c => c.id === rightCarId) || null;
 
-  const canStartRace = selectedRaceType && 
-    (isOBDMode ? rightCar : (leftCar && rightCar)) && 
+  const effectiveLeftCar = isLeftOBD
+    ? { id: "obd-vehicle-1", name: "Car 1 (OBD)", makeModel: "OBD-II Connected", horsepower: 400, weight: 3500, color: "#ef4444", drivetrain: "RWD" as const }
+    : leftCar;
+
+  const effectiveRightCar = isRightOBD
+    ? { id: "obd-vehicle-2", name: "Car 2 (OBD)", makeModel: "OBD-II Connected", horsepower: 400, weight: 3500, color: "#3b82f6", drivetrain: "RWD" as const }
+    : rightCar;
+
+  const canStartRace = selectedRaceType &&
+    effectiveLeftCar &&
+    effectiveRightCar &&
     dynoMachines.every(d => d.status === "connected");
 
   const handleSelectLeftCar = (carId: string) => {
@@ -74,17 +104,10 @@ export default function Home() {
   };
 
   const handleStartRace = () => {
-    if (selectedRaceType) {
-      const left = isOBDMode 
-        ? { id: "obd-vehicle", name: "Your Vehicle", makeModel: "OBD-II Connected", horsepower: 400, weight: 3500, color: "#ef4444", drivetrain: "RWD" as const }
-        : leftCar;
-      const right = rightCar;
-      
-      if (left && right) {
-        const raceRollSpeed = selectedRaceType === "roll" ? rollSpeed : undefined;
-        createRace(selectedRaceType, left, right, raceRollSpeed);
-        setLocation("/race");
-      }
+    if (selectedRaceType && effectiveLeftCar && effectiveRightCar) {
+      const raceRollSpeed = selectedRaceType === "roll" ? rollSpeed : undefined;
+      createRace(selectedRaceType, effectiveLeftCar, effectiveRightCar, raceRollSpeed);
+      setLocation("/race");
     }
   };
 
@@ -92,7 +115,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <div className="relative overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-800 border-b border-zinc-800">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMyMjIiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRoLTJ2LTRoMnY0em0wLThoLTJ2LTRoMnY0em0wLThoLTJWMTRoMnY0em0wLThoLTJWNmgydjR6bTAgMjRoLTJ2LTRoMnY0em0wIDhoLTJ2LTRoMnY0em0tOC04aC0ydi00aDJ2NHptMC04aC0ydi00aDJ2NHptMC04aC0yVjE0aDJ2NHptMC04aC0yVjZoMnY0em0wIDI0aC0ydi00aDJ2NHptMCA4aC0ydi00aDJ2NHoiLz48L2c+PC9nPjwvc3ZnPg==')] opacity-30" />
-        
+
         <div className="relative max-w-6xl mx-auto px-6 py-16">
           <div className="flex items-center gap-4 mb-4">
             <div className="p-3 bg-primary rounded-lg">
@@ -105,7 +128,7 @@ export default function Home() {
               <p className="text-zinc-400">Virtual Drag Racing with Dual Dynojet Simulation</p>
             </div>
           </div>
-          
+
           <div className="flex flex-wrap gap-3 mt-6">
             <Badge variant="outline" className="bg-zinc-800/50 border-zinc-700 text-zinc-300">
               <Flag className="w-3 h-3 mr-1" /> Professional Timing
@@ -114,7 +137,7 @@ export default function Home() {
               Real-Time Telemetry
             </Badge>
             <Badge variant="outline" className="bg-zinc-800/50 border-zinc-700 text-zinc-300">
-              <Bluetooth className="w-3 h-3 mr-1" /> OBD-II Support
+              <Bluetooth className="w-3 h-3 mr-1" /> Dual OBD-II Support
             </Badge>
             <Badge variant="outline" className="bg-zinc-800/50 border-zinc-700 text-zinc-300">
               Desktop App
@@ -137,11 +160,11 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <RaceTypeSelector 
-                  selected={selectedRaceType} 
+                <RaceTypeSelector
+                  selected={selectedRaceType}
                   onSelect={setSelectedRaceType}
                 />
-                
+
                 {selectedRaceType === "roll" && (
                   <div className="mt-6 pt-6 border-t border-border">
                     <label className="text-sm font-medium mb-3 block">Roll Speed</label>
@@ -173,8 +196,12 @@ export default function Home() {
                   Dyno Machines
                 </CardTitle>
                 <CardDescription>
-                  {isOBDMode 
-                    ? "Lane 1: Your vehicle via OBD | Lane 2: Select opponent from garage"
+                  {isLeftOBD && isRightOBD
+                    ? "Both lanes: Live OBD-II vehicles"
+                    : isLeftOBD
+                    ? "Lane 1: Live OBD-II vehicle | Lane 2: Garage car"
+                    : isRightOBD
+                    ? "Lane 1: Garage car | Lane 2: Live OBD-II vehicle"
                     : "Select cars for each lane from your garage"}
                 </CardDescription>
               </CardHeader>
@@ -183,12 +210,12 @@ export default function Home() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium flex items-center gap-2">
                       <CarIcon className="w-4 h-4" />
-                      Lane 1 {isOBDMode && <Badge variant="secondary" className="text-xs">OBD</Badge>}
+                      Lane 1 {isLeftOBD && <Badge variant="secondary" className="text-xs">OBD Live</Badge>}
                     </label>
-                    {isOBDMode ? (
+                    {isLeftOBD ? (
                       <div className="flex items-center gap-2 p-3 rounded-md border border-primary/30 bg-primary/5">
                         <Bluetooth className="w-4 h-4 text-primary" />
-                        <span className="font-medium">Your Vehicle (OBD-II)</span>
+                        <span className="font-medium">Car 1 — Live OBD-II</span>
                       </div>
                     ) : (
                       <Select value={leftCarId || ""} onValueChange={handleSelectLeftCar}>
@@ -199,9 +226,9 @@ export default function Home() {
                           {cars.map((car) => (
                             <SelectItem key={car.id} value={car.id} data-testid={`option-left-car-${car.id}`}>
                               <div className="flex items-center gap-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
-                                  style={{ backgroundColor: car.color }} 
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: car.color }}
                                 />
                                 <span>{car.name}</span>
                                 <span className="text-muted-foreground text-xs">{car.horsepower} HP</span>
@@ -211,48 +238,71 @@ export default function Home() {
                         </SelectContent>
                       </Select>
                     )}
-                    <DynoStatus 
-                      machine={dynoMachines[0]} 
-                      car={isOBDMode ? { id: "obd", name: "Your Vehicle", makeModel: "OBD-II", horsepower: 0, weight: 0, color: "#ef4444", drivetrain: "RWD" } : leftCar} 
-                      lane="left" 
+                    <DynoStatus
+                      machine={dynoMachines[0]}
+                      car={isLeftOBD ? { id: "obd-vehicle-1", name: "Car 1 (OBD)", makeModel: "OBD-II", horsepower: 0, weight: 0, color: "#ef4444", drivetrain: "RWD" } : leftCar}
+                      lane="left"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
                     <label className="text-sm font-medium flex items-center gap-2">
                       <CarIcon className="w-4 h-4" />
-                      Lane 2 {isOBDMode && <Badge variant="outline" className="text-xs">Virtual</Badge>}
+                      Lane 2 {isRightOBD && <Badge variant="secondary" className="text-xs">OBD Live</Badge>}
                     </label>
-                    <Select value={rightCarId || ""} onValueChange={handleSelectRightCar}>
-                      <SelectTrigger data-testid="select-right-car">
-                        <SelectValue placeholder="Select opponent" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cars.map((car) => (
-                          <SelectItem key={car.id} value={car.id} data-testid={`option-right-car-${car.id}`}>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: car.color }} 
-                              />
-                              <span>{car.name}</span>
-                              <span className="text-muted-foreground text-xs">{car.horsepower} HP</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <DynoStatus 
-                      machine={dynoMachines[1]} 
-                      car={rightCar} 
-                      lane="right" 
+                    {isRightOBD ? (
+                      <div className="flex items-center gap-2 p-3 rounded-md border border-blue-500/30 bg-blue-500/5">
+                        <Bluetooth className="w-4 h-4 text-blue-400" />
+                        <span className="font-medium">Car 2 — Live OBD-II</span>
+                      </div>
+                    ) : (
+                      <Select value={rightCarId || ""} onValueChange={handleSelectRightCar}>
+                        <SelectTrigger data-testid="select-right-car">
+                          <SelectValue placeholder="Select opponent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {cars.map((car) => (
+                            <SelectItem key={car.id} value={car.id} data-testid={`option-right-car-${car.id}`}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: car.color }}
+                                />
+                                <span>{car.name}</span>
+                                <span className="text-muted-foreground text-xs">{car.horsepower} HP</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <DynoStatus
+                      machine={dynoMachines[1]}
+                      car={isRightOBD ? { id: "obd-vehicle-2", name: "Car 2 (OBD)", makeModel: "OBD-II", horsepower: 0, weight: 0, color: "#3b82f6", drivetrain: "RWD" } : rightCar}
+                      lane="right"
                     />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <OBDConnectionManager />
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-racing uppercase tracking-wider flex items-center gap-2">
+                  <Bluetooth className="w-5 h-5" />
+                  OBD-II Connections
+                </CardTitle>
+                <CardDescription>
+                  Connect real vehicles via Bluetooth ELM327 adapters — one or both lanes
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <OBDConnectionManager carId={1} laneLabel="Lane 1 / Car 1" />
+                  <OBDConnectionManager carId={2} laneLabel="Lane 2 / Car 2" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <div className="space-y-6">
@@ -261,31 +311,33 @@ export default function Home() {
                 <h3 className="font-racing text-xl font-bold uppercase tracking-wider mb-4">
                   Ready to Race?
                 </h3>
-                
+
                 <div className="space-y-3 mb-6">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Race Type</span>
                     <span className="font-semibold">
                       {selectedRaceType ? (
-                        selectedRaceType === "roll" 
-                          ? `${rollSpeed} MPH ROLL` 
+                        selectedRaceType === "roll"
+                          ? `${rollSpeed} MPH ROLL`
                           : selectedRaceType.toUpperCase()
                       ) : "Not selected"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Lane 1</span>
-                    <span className="font-semibold">
-                      {isOBDMode ? "Your Vehicle (OBD)" : (leftCar?.name || "—")}
+                    <span className="font-semibold flex items-center gap-1">
+                      {isLeftOBD ? <><Bluetooth className="w-3 h-3 text-primary" /> Car 1 (OBD)</> : (leftCar?.name || "—")}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Lane 2</span>
-                    <span className="font-semibold">{rightCar?.name || "—"}</span>
+                    <span className="font-semibold flex items-center gap-1">
+                      {isRightOBD ? <><Bluetooth className="w-3 h-3 text-blue-400" /> Car 2 (OBD)</> : (rightCar?.name || "—")}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Dyno Status</span>
-                    <Badge 
+                    <Badge
                       variant={dynoMachines.every(d => d.status === "connected") ? "default" : "secondary"}
                       className="text-xs"
                     >
@@ -294,8 +346,8 @@ export default function Home() {
                   </div>
                 </div>
 
-                <Button 
-                  size="lg" 
+                <Button
+                  size="lg"
                   className="w-full font-racing uppercase tracking-wider"
                   disabled={!canStartRace}
                   onClick={handleStartRace}
@@ -307,9 +359,9 @@ export default function Home() {
 
                 {!canStartRace && (
                   <p className="text-xs text-muted-foreground text-center mt-3">
-                    {!selectedRaceType 
-                      ? "Select a race type to continue" 
-                      : "Ensure both dyno machines are connected"}
+                    {!selectedRaceType
+                      ? "Select a race type to continue"
+                      : "Ensure both lanes have a car assigned"}
                   </p>
                 )}
               </CardContent>

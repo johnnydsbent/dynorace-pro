@@ -4,8 +4,10 @@ import { SerialPort } from "serialport";
 import { ReadlineParser } from "serialport";
 
 let mainWindow: BrowserWindow | null = null;
-let serialPort: SerialPort | null = null;
-let parser: ReadlineParser | null = null;
+
+const serialPorts: Map<number, SerialPort> = new Map();
+const parsers: Map<number, ReadlineParser> = new Map();
+const pollingIntervals: Map<number, NodeJS.Timeout> = new Map();
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -34,9 +36,13 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
-    if (serialPort?.isOpen) {
-      serialPort.close();
+    for (const [, port] of serialPorts) {
+      if (port.isOpen) port.close();
     }
+    serialPorts.clear();
+    parsers.clear();
+    for (const [, interval] of pollingIntervals) clearInterval(interval);
+    pollingIntervals.clear();
   });
 }
 
@@ -59,9 +65,8 @@ ipcMain.handle("obd:list-ports", async () => {
     const ports = await SerialPort.list();
     return ports.filter(port => {
       const manufacturer = (port.manufacturer || "").toLowerCase();
-      const path = port.path || "";
+      const portPath = port.path || "";
       const vendorId = port.vendorId || "";
-      
       return (
         manufacturer.includes("elm") ||
         manufacturer.includes("obd") ||
@@ -69,12 +74,12 @@ ipcMain.handle("obd:list-ports", async () => {
         manufacturer.includes("prolific") ||
         vendorId === "0403" ||
         vendorId === "067B" ||
-        path.includes("Bluetooth") ||
-        path.includes("rfcomm") ||
-        path.includes("tty.OBD") ||
-        path.includes("tty.SLAB") ||
-        path.includes("ttyUSB") ||
-        path.includes("COM")
+        portPath.includes("Bluetooth") ||
+        portPath.includes("rfcomm") ||
+        portPath.includes("tty.OBD") ||
+        portPath.includes("tty.SLAB") ||
+        portPath.includes("ttyUSB") ||
+        portPath.includes("COM")
       );
     });
   } catch (error) {
@@ -83,13 +88,14 @@ ipcMain.handle("obd:list-ports", async () => {
   }
 });
 
-ipcMain.handle("obd:connect", async (_event, portPath: string) => {
+ipcMain.handle("obd:connect", async (_event, { portPath, carId }: { portPath: string; carId: number }) => {
   try {
-    if (serialPort?.isOpen) {
-      await new Promise<void>((resolve) => serialPort!.close(() => resolve()));
+    const existing = serialPorts.get(carId);
+    if (existing?.isOpen) {
+      await new Promise<void>((resolve) => existing.close(() => resolve()));
     }
 
-    serialPort = new SerialPort({
+    const port = new SerialPort({
       path: portPath,
       baudRate: 38400,
       dataBits: 8,
@@ -97,27 +103,29 @@ ipcMain.handle("obd:connect", async (_event, portPath: string) => {
       parity: "none",
     });
 
-    parser = serialPort.pipe(new ReadlineParser({ delimiter: "\r" }));
+    const parser = port.pipe(new ReadlineParser({ delimiter: "\r" }));
+    serialPorts.set(carId, port);
+    parsers.set(carId, parser);
 
     parser.on("data", (data: string) => {
       const cleanData = data.trim();
       if (cleanData && mainWindow) {
-        mainWindow.webContents.send("obd:data", cleanData);
+        mainWindow.webContents.send(`obd:data:${carId}`, cleanData);
       }
     });
 
     await new Promise<void>((resolve, reject) => {
-      serialPort!.on("open", () => {
-        console.log("Serial port opened");
+      port.on("open", () => {
+        console.log(`Serial port opened for car ${carId}`);
         resolve();
       });
-      serialPort!.on("error", (err) => {
-        console.error("Serial port error:", err);
+      port.on("error", (err) => {
+        console.error(`Serial port error for car ${carId}:`, err);
         reject(err);
       });
     });
 
-    await initializeELM327();
+    await initializeELM327(carId);
     return { success: true };
   } catch (error: any) {
     console.error("Connection error:", error);
@@ -125,30 +133,32 @@ ipcMain.handle("obd:connect", async (_event, portPath: string) => {
   }
 });
 
-ipcMain.handle("obd:disconnect", async () => {
+ipcMain.handle("obd:disconnect", async (_event, { carId }: { carId: number }) => {
   try {
-    if (serialPort?.isOpen) {
-      await new Promise<void>((resolve) => serialPort!.close(() => resolve()));
+    stopPollingOBDData(carId);
+    const port = serialPorts.get(carId);
+    if (port?.isOpen) {
+      await new Promise<void>((resolve) => port.close(() => resolve()));
     }
-    serialPort = null;
-    parser = null;
+    serialPorts.delete(carId);
+    parsers.delete(carId);
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle("obd:send-command", async (_event, command: string) => {
+ipcMain.handle("obd:send-command", async (_event, { command, carId }: { command: string; carId: number }) => {
   try {
-    if (!serialPort?.isOpen) {
-      throw new Error("Port not connected");
-    }
-    
+    const port = serialPorts.get(carId);
+    if (!port?.isOpen) throw new Error("Port not connected");
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error("Command timeout"));
       }, 2000);
 
+      const parser = parsers.get(carId);
       const responseHandler = (data: string) => {
         clearTimeout(timeout);
         parser?.removeListener("data", responseHandler);
@@ -156,62 +166,47 @@ ipcMain.handle("obd:send-command", async (_event, command: string) => {
       };
 
       parser?.on("data", responseHandler);
-      serialPort!.write(`${command}\r`);
+      port.write(`${command}\r`);
     });
   } catch (error: any) {
     return { error: error.message };
   }
 });
 
-ipcMain.handle("obd:start-live-data", async () => {
-  if (!serialPort?.isOpen) {
-    return { success: false, error: "Not connected" };
-  }
-
-  startPollingOBDData();
+ipcMain.handle("obd:start-live-data", async (_event, { carId }: { carId: number }) => {
+  const port = serialPorts.get(carId);
+  if (!port?.isOpen) return { success: false, error: "Not connected" };
+  startPollingOBDData(carId);
   return { success: true };
 });
 
-ipcMain.handle("obd:stop-live-data", async () => {
-  stopPollingOBDData();
+ipcMain.handle("obd:stop-live-data", async (_event, { carId }: { carId: number }) => {
+  stopPollingOBDData(carId);
   return { success: true };
 });
 
-let pollingInterval: NodeJS.Timeout | null = null;
-
-async function initializeELM327() {
-  const initCommands = [
-    "ATZ",
-    "ATE0",
-    "ATL0",
-    "ATS0",
-    "ATH0",
-    "ATSP0",
-  ];
-
+async function initializeELM327(carId: number) {
+  const initCommands = ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0"];
   for (const cmd of initCommands) {
-    await sendCommand(cmd);
+    await sendCommand(carId, cmd);
     await delay(100);
   }
 }
 
-function sendCommand(cmd: string): Promise<string> {
+function sendCommand(carId: number, cmd: string): Promise<string> {
   return new Promise((resolve) => {
-    if (!serialPort?.isOpen) {
-      resolve("");
-      return;
-    }
+    const port = serialPorts.get(carId);
+    const parser = parsers.get(carId);
+    if (!port?.isOpen) { resolve(""); return; }
 
     const timeout = setTimeout(() => resolve(""), 1500);
-    
     const handler = (data: string) => {
       clearTimeout(timeout);
       parser?.removeListener("data", handler);
       resolve(data.trim());
     };
-
     parser?.once("data", handler);
-    serialPort.write(`${cmd}\r`);
+    port.write(`${cmd}\r`);
   });
 }
 
@@ -225,60 +220,50 @@ const OBD_PIDS = {
   THROTTLE: "0111",
   COOLANT_TEMP: "0105",
   ENGINE_LOAD: "0104",
-  FUEL_LEVEL: "012F",
 };
 
 function parseOBDResponse(response: string, pid: string): number | null {
   const cleaned = response.replace(/[\s>]/g, "").toUpperCase();
-  
-  if (cleaned.includes("NODATA") || cleaned.includes("ERROR") || cleaned.length < 4) {
-    return null;
-  }
+  if (cleaned.includes("NODATA") || cleaned.includes("ERROR") || cleaned.length < 4) return null;
 
   try {
     const bytes = cleaned.match(/.{1,2}/g) || [];
-    
     switch (pid) {
-      case "010D":
-        const speedByte = parseInt(bytes[2], 16);
-        return speedByte * 0.621371;
-        
-      case "010C":
-        const rpmA = parseInt(bytes[2], 16);
-        const rpmB = parseInt(bytes[3], 16);
-        return ((rpmA * 256) + rpmB) / 4;
-        
-      case "0111":
-        const throttleByte = parseInt(bytes[2], 16);
-        return (throttleByte * 100) / 255;
-        
-      case "0105":
-        const tempByte = parseInt(bytes[2], 16);
-        return (tempByte - 40) * 9/5 + 32;
-        
-      case "0104":
-        const loadByte = parseInt(bytes[2], 16);
-        return (loadByte * 100) / 255;
-        
-      default:
-        return null;
+      case "010D": return parseInt(bytes[2], 16) * 0.621371;
+      case "010C": return ((parseInt(bytes[2], 16) * 256) + parseInt(bytes[3], 16)) / 4;
+      case "0111": return (parseInt(bytes[2], 16) * 100) / 255;
+      case "0105": return (parseInt(bytes[2], 16) - 40) * 9/5 + 32;
+      case "0104": return (parseInt(bytes[2], 16) * 100) / 255;
+      default: return null;
     }
   } catch {
     return null;
   }
 }
 
-async function pollOBDData() {
-  if (!serialPort?.isOpen || !mainWindow) return;
+function estimateGear(rpm: number, speed: number): number {
+  if (speed < 1 || rpm < 500) return 0;
+  const ratio = rpm / speed;
+  if (ratio > 150) return 1;
+  if (ratio > 100) return 2;
+  if (ratio > 70) return 3;
+  if (ratio > 50) return 4;
+  if (ratio > 35) return 5;
+  return 6;
+}
+
+async function pollOBDData(carId: number) {
+  const port = serialPorts.get(carId);
+  if (!port?.isOpen || !mainWindow) return;
 
   try {
-    const speedResponse = await sendCommand(OBD_PIDS.SPEED);
+    const speedResponse = await sendCommand(carId, OBD_PIDS.SPEED);
     const speed = parseOBDResponse(speedResponse, OBD_PIDS.SPEED);
 
-    const rpmResponse = await sendCommand(OBD_PIDS.RPM);
+    const rpmResponse = await sendCommand(carId, OBD_PIDS.RPM);
     const rpm = parseOBDResponse(rpmResponse, OBD_PIDS.RPM);
 
-    const throttleResponse = await sendCommand(OBD_PIDS.THROTTLE);
+    const throttleResponse = await sendCommand(carId, OBD_PIDS.THROTTLE);
     const throttle = parseOBDResponse(throttleResponse, OBD_PIDS.THROTTLE);
 
     const telemetry = {
@@ -290,35 +275,23 @@ async function pollOBDData() {
       distanceFt: 0,
     };
 
-    mainWindow.webContents.send("obd:telemetry", telemetry);
+    mainWindow.webContents.send(`obd:telemetry:${carId}`, telemetry);
   } catch (error) {
-    console.error("OBD polling error:", error);
+    console.error(`OBD polling error for car ${carId}:`, error);
   }
 }
 
-function estimateGear(rpm: number, speed: number): number {
-  if (speed < 1 || rpm < 500) return 0;
-  
-  const ratio = rpm / speed;
-  
-  if (ratio > 150) return 1;
-  if (ratio > 100) return 2;
-  if (ratio > 70) return 3;
-  if (ratio > 50) return 4;
-  if (ratio > 35) return 5;
-  return 6;
+function startPollingOBDData(carId: number) {
+  const existing = pollingIntervals.get(carId);
+  if (existing) clearInterval(existing);
+  const interval = setInterval(() => pollOBDData(carId), 100);
+  pollingIntervals.set(carId, interval);
 }
 
-function startPollingOBDData() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-  }
-  pollingInterval = setInterval(pollOBDData, 100);
-}
-
-function stopPollingOBDData() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
+function stopPollingOBDData(carId: number) {
+  const interval = pollingIntervals.get(carId);
+  if (interval) {
+    clearInterval(interval);
+    pollingIntervals.delete(carId);
   }
 }

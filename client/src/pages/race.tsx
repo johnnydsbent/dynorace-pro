@@ -8,7 +8,7 @@ import { ProgressTrack } from "@/components/progress-track";
 import { LiveMetricsBar } from "@/components/live-metrics-bar";
 import { useRace } from "@/lib/race-context";
 import { useToast } from "@/hooks/use-toast";
-import { obdService } from "@/lib/obd-service";
+import { obdService1, obdService2 } from "@/lib/obd-service";
 import { raceTypeInfo } from "@shared/schema";
 import type { TelemetrySample, RaceResult } from "@shared/schema";
 import { Play, Square, Bluetooth, Car } from "lucide-react";
@@ -28,50 +28,42 @@ function simulateRace(
   let rpm = isRoll ? (2500 + rollSpeed * 50) : 1000;
   let gear = isRoll ? (rollSpeed >= 50 ? 3 : 2) : 1;
   const reactionTime = 0.1 + Math.random() * 0.3;
-  
+
   const powerToWeight = horsepower / (weight / 1000);
   const baseAcceleration = powerToWeight * 0.08;
-  
+
   let zeroTo60Time: number | null = null;
   let sixtyFtTime: number | null = null;
   let threeThirtyFtTime: number | null = null;
   let sixSixtyFtTime: number | null = null;
   let topSpeed = speed;
-  
+
   const interval = setInterval(() => {
     timestamp += 50;
-    
+
     const randomFactor = 0.95 + Math.random() * 0.1;
     const dragCoefficient = 0.0005;
     const drag = speed * speed * dragCoefficient;
-    
+
     const effectiveAcceleration = Math.max(0, (baseAcceleration * randomFactor) - drag);
     speed += effectiveAcceleration * 0.05;
-    
+
     if (speed > topSpeed) topSpeed = speed;
-    
+
     distance += (speed * 5280 / 3600) * 0.05;
-    
+
     rpm = Math.min(7500, 2000 + (speed * 40) + Math.random() * 200);
-    
+
     if (rpm > 6800 && gear < 6) {
       gear++;
       rpm = 4000;
     }
-    
-    if (zeroTo60Time === null && speed >= 60) {
-      zeroTo60Time = timestamp;
-    }
-    if (sixtyFtTime === null && distance >= 60) {
-      sixtyFtTime = timestamp;
-    }
-    if (threeThirtyFtTime === null && distance >= 330) {
-      threeThirtyFtTime = timestamp;
-    }
-    if (sixSixtyFtTime === null && distance >= 660) {
-      sixSixtyFtTime = timestamp;
-    }
-    
+
+    if (zeroTo60Time === null && speed >= 60) zeroTo60Time = timestamp;
+    if (sixtyFtTime === null && distance >= 60) sixtyFtTime = timestamp;
+    if (threeThirtyFtTime === null && distance >= 330) threeThirtyFtTime = timestamp;
+    if (sixSixtyFtTime === null && distance >= 660) sixSixtyFtTime = timestamp;
+
     onTelemetry({
       timestamp,
       mph: speed,
@@ -80,7 +72,7 @@ function simulateRace(
       distanceFt: distance,
       throttlePct: 95 + Math.random() * 5,
     });
-    
+
     if (distance >= targetDistance) {
       clearInterval(interval);
       onComplete({
@@ -97,13 +89,27 @@ function simulateRace(
       });
     }
   }, 50);
-  
+
   return () => clearInterval(interval);
+}
+
+function makeEmptyObdData(startSpeed = 0) {
+  return {
+    startTime: null as number | null,
+    distance: 0,
+    topSpeed: startSpeed,
+    zeroTo60Time: null as number | null,
+    sixtyFtTime: null as number | null,
+    threeThirtyFtTime: null as number | null,
+    sixSixtyFtTime: null as number | null,
+    lastSpeed: startSpeed,
+    lastTimestamp: 0,
+  };
 }
 
 export default function Race() {
   const [, setLocation] = useLocation();
-  const { currentRace, cars, updateRaceStatus, updateTelemetry, completeRace, resetRace, dataSource, obdConnected, setObdConnected, setDataSource } = useRace();
+  const { currentRace, cars, updateRaceStatus, updateTelemetry, completeRace, resetRace, setObdConnected, setObdConnected2, setDataSource } = useRace();
   const { toast } = useToast();
   const [treeStatus, setTreeStatus] = useState<"idle" | "staging" | "countdown" | "go" | "false-start">("idle");
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -113,42 +119,25 @@ export default function Race() {
   const [rightReaction, setRightReaction] = useState<number | null>(null);
   const [leftAtRollSpeed, setLeftAtRollSpeed] = useState(false);
   const [rightAtRollSpeed, setRightAtRollSpeed] = useState(false);
-  
+
   const raceStartTimeRef = useRef<number | null>(null);
   const cleanupRef = useRef<(() => void)[]>([]);
   const resultsRef = useRef<{ left: Partial<RaceResult> | null; right: Partial<RaceResult> | null }>({
     left: null,
     right: null,
   });
-  const obdDataRef = useRef<{
-    startTime: number | null;
-    distance: number;
-    topSpeed: number;
-    zeroTo60Time: number | null;
-    sixtyFtTime: number | null;
-    threeThirtyFtTime: number | null;
-    sixSixtyFtTime: number | null;
-    lastSpeed: number;
-    lastTimestamp: number;
-  }>({
-    startTime: null,
-    distance: 0,
-    topSpeed: 0,
-    zeroTo60Time: null,
-    sixtyFtTime: null,
-    threeThirtyFtTime: null,
-    sixSixtyFtTime: null,
-    lastSpeed: 0,
-    lastTimestamp: 0,
-  });
-  
-  const isUsingOBD = dataSource === "obd" && obdConnected;
-  
+  const obdData1Ref = useRef(makeEmptyObdData());
+  const obdData2Ref = useRef(makeEmptyObdData());
+
+  const isLeftObd = currentRace?.participants[0]?.isObd ?? false;
+  const isRightObd = currentRace?.participants[1]?.isObd ?? false;
+  const anyObd = isLeftObd || isRightObd;
+
   const cleanupAllSubscriptions = useCallback(() => {
     cleanupRef.current.forEach(fn => fn());
     cleanupRef.current = [];
   }, []);
-  
+
   useEffect(() => {
     return () => {
       cleanupAllSubscriptions();
@@ -163,41 +152,53 @@ export default function Race() {
 
   useEffect(() => {
     if (!currentRace) return;
-    
+
     const isRoll = currentRace.raceType === "roll";
-    
+
     if (currentRace.status === "setup") {
       setLeftAtRollSpeed(false);
       setRightAtRollSpeed(false);
     }
-    
+
     if (!isRoll) {
       setLeftAtRollSpeed(true);
       setRightAtRollSpeed(true);
       return;
     }
-    
+
     const rollSpeedTarget = currentRace.rollSpeed || 40;
-    
-    if (!isUsingOBD) {
-      setLeftAtRollSpeed(true);
-      setRightAtRollSpeed(true);
-      return;
+
+    if (!isLeftObd) setLeftAtRollSpeed(true);
+    if (!isRightObd) setRightAtRollSpeed(true);
+
+    if ((currentRace.status === "staging" || currentRace.status === "countdown")) {
+      const checks: (() => void)[] = [];
+
+      if (isLeftObd) {
+        const checkLeft = setInterval(() => {
+          if (leftTelemetry && leftTelemetry.mph >= rollSpeedTarget - 2) {
+            setLeftAtRollSpeed(true);
+          } else if (leftTelemetry && leftTelemetry.mph < rollSpeedTarget - 5) {
+            setLeftAtRollSpeed(false);
+          }
+        }, 100);
+        checks.push(() => clearInterval(checkLeft));
+      }
+
+      if (isRightObd) {
+        const checkRight = setInterval(() => {
+          if (rightTelemetry && rightTelemetry.mph >= rollSpeedTarget - 2) {
+            setRightAtRollSpeed(true);
+          } else if (rightTelemetry && rightTelemetry.mph < rollSpeedTarget - 5) {
+            setRightAtRollSpeed(false);
+          }
+        }, 100);
+        checks.push(() => clearInterval(checkRight));
+      }
+
+      return () => checks.forEach(fn => fn());
     }
-    
-    setRightAtRollSpeed(true);
-    
-    if (currentRace.status === "staging" || currentRace.status === "countdown") {
-      const checkInterval = setInterval(() => {
-        if (leftTelemetry && leftTelemetry.mph >= rollSpeedTarget - 2) {
-          setLeftAtRollSpeed(true);
-        } else if (leftTelemetry && leftTelemetry.mph < rollSpeedTarget - 5) {
-          setLeftAtRollSpeed(false);
-        }
-      }, 100);
-      return () => clearInterval(checkInterval);
-    }
-  }, [currentRace, isUsingOBD, leftTelemetry]);
+  }, [currentRace, isLeftObd, isRightObd, leftTelemetry, rightTelemetry]);
 
   useEffect(() => {
     if (currentRace?.status === "racing" && raceStartTimeRef.current) {
@@ -210,10 +211,10 @@ export default function Race() {
 
   const handleStartSequence = useCallback(() => {
     if (!currentRace) return;
-    
+
     updateRaceStatus("staging");
     setTreeStatus("staging");
-    
+
     setTimeout(() => {
       setTreeStatus("countdown");
       updateRaceStatus("countdown");
@@ -222,11 +223,11 @@ export default function Race() {
 
   const handleCountdownComplete = useCallback(() => {
     if (!currentRace) return;
-    
+
     setTreeStatus("go");
     updateRaceStatus("racing");
     raceStartTimeRef.current = Date.now();
-    
+
     const leftParticipant = currentRace.participants[0];
     const rightParticipant = currentRace.participants[1];
     const leftCar = leftParticipant?.car || cars.find(c => c.id === leftParticipant?.carId);
@@ -234,42 +235,44 @@ export default function Race() {
     const targetDistance = raceTypeInfo[currentRace.raceType].distanceFt;
     const isRoll = currentRace.raceType === "roll";
     const rollSpeedValue = currentRace.rollSpeed || 40;
-    
-    if (isUsingOBD) {
-      obdDataRef.current = {
-        startTime: Date.now(),
-        distance: 0,
-        topSpeed: isRoll ? rollSpeedValue : 0,
-        zeroTo60Time: null,
-        sixtyFtTime: null,
-        threeThirtyFtTime: null,
-        sixSixtyFtTime: null,
-        lastSpeed: isRoll ? rollSpeedValue : 0,
-        lastTimestamp: Date.now(),
-      };
-      
+
+    const leftIsObd = leftParticipant?.isObd ?? false;
+    const rightIsObd = rightParticipant?.isObd ?? false;
+
+    const startObdLane = (
+      laneLabel: "left" | "right",
+      obdService: typeof obdService1,
+      obdDataRef: React.MutableRefObject<ReturnType<typeof makeEmptyObdData>>,
+      car: typeof leftCar,
+      setTelemetry: (s: TelemetrySample) => void,
+      setReaction: (r: number) => void
+    ) => {
+      obdDataRef.current = makeEmptyObdData(isRoll ? rollSpeedValue : 0);
+      obdDataRef.current.startTime = Date.now();
+      obdDataRef.current.lastTimestamp = Date.now();
+
       const reactionTime = 0.15 + Math.random() * 0.1;
-      setLeftReaction(reactionTime);
-      
-      let obdRaceCompleted = false;
-      
+      setReaction(reactionTime);
+
+      let completed = false;
+
       const unsubscribe = obdService.onTelemetry((obdTelemetry) => {
-        if (obdRaceCompleted) return;
-        
+        if (completed) return;
+
         const now = Date.now();
         const elapsed = now - (obdDataRef.current.startTime || now);
         const deltaTime = (now - obdDataRef.current.lastTimestamp) / 1000;
-        
+
         const avgSpeed = (obdTelemetry.mph + obdDataRef.current.lastSpeed) / 2;
         const distanceIncrement = (avgSpeed * 5280 / 3600) * deltaTime;
         obdDataRef.current.distance += distanceIncrement;
         obdDataRef.current.lastSpeed = obdTelemetry.mph;
         obdDataRef.current.lastTimestamp = now;
-        
+
         if (obdTelemetry.mph > obdDataRef.current.topSpeed) {
           obdDataRef.current.topSpeed = obdTelemetry.mph;
         }
-        
+
         if (obdDataRef.current.zeroTo60Time === null && obdTelemetry.mph >= 60) {
           obdDataRef.current.zeroTo60Time = elapsed;
         }
@@ -282,7 +285,7 @@ export default function Race() {
         if (obdDataRef.current.sixSixtyFtTime === null && obdDataRef.current.distance >= 660) {
           obdDataRef.current.sixSixtyFtTime = elapsed;
         }
-        
+
         const sample: TelemetrySample = {
           timestamp: elapsed,
           mph: obdTelemetry.mph,
@@ -291,17 +294,15 @@ export default function Race() {
           distanceFt: obdDataRef.current.distance,
           throttlePct: obdTelemetry.throttlePct,
         };
-        
-        setLeftTelemetry(sample);
-        if (leftCar) {
-          updateTelemetry(leftCar.id, sample);
-        }
-        
+
+        setTelemetry(sample);
+        if (car) updateTelemetry(car.id, sample);
+
         if (obdDataRef.current.distance >= targetDistance) {
-          obdRaceCompleted = true;
+          completed = true;
           unsubscribe();
           obdService.stopLiveData();
-          
+
           const result: Partial<RaceResult> = {
             reactionTimeMs: reactionTime * 1000,
             zeroTo60Ms: obdDataRef.current.zeroTo60Time ?? elapsed,
@@ -314,116 +315,101 @@ export default function Race() {
             distanceFt: obdDataRef.current.distance,
             falseStart: false,
           };
-          
-          resultsRef.current.left = result;
+
+          if (laneLabel === "left") {
+            resultsRef.current.left = result;
+          } else {
+            resultsRef.current.right = result;
+          }
           checkRaceComplete();
         }
       });
-      
-      const errorUnsubscribe = obdService.onError((error) => {
-        console.error("OBD error during race:", error);
+
+      const errorUnsub = obdService.onError((error) => {
+        console.error(`OBD error during race (${laneLabel}):`, error);
         unsubscribe();
         obdService.stopLiveData();
         cleanupAllSubscriptions();
-        setObdConnected(false);
-        setDataSource("simulated");
+        if (laneLabel === "left") {
+          setObdConnected(false);
+          setDataSource("simulated");
+        } else {
+          setObdConnected2(false);
+        }
         toast({
           title: "OBD Connection Lost",
-          description: "Bluetooth adapter disconnected. Race aborted.",
+          description: `Lane ${laneLabel === "left" ? "1" : "2"} Bluetooth adapter disconnected. Race aborted.`,
           variant: "destructive",
         });
         resetRace();
         setLocation("/");
       });
-      
+
       cleanupRef.current.push(unsubscribe);
-      cleanupRef.current.push(errorUnsubscribe);
+      cleanupRef.current.push(errorUnsub);
       cleanupRef.current.push(() => obdService.stopLiveData());
       obdService.startLiveData();
-      
-      if (rightCar) {
-        const cleanup = simulateRace(
-          rightCar.horsepower,
-          rightCar.weight,
-          targetDistance,
-          isRoll,
-          rollSpeedValue,
-          (sample) => {
-            setRightTelemetry(sample);
-            updateTelemetry(rightCar.id, sample);
-            if (sample.timestamp === 50) {
-              const rt = 0.1 + Math.random() * 0.3;
-              setRightReaction(rt);
-            }
-          },
-          (result) => {
-            resultsRef.current.right = result;
-            checkRaceComplete();
+    };
+
+    const startSimulatedLane = (
+      laneLabel: "left" | "right",
+      car: typeof leftCar,
+      setTelemetry: (s: TelemetrySample) => void,
+      setReaction: (r: number) => void
+    ) => {
+      if (!car) return;
+      const cleanup = simulateRace(
+        car.horsepower,
+        car.weight,
+        targetDistance,
+        isRoll,
+        rollSpeedValue,
+        (sample) => {
+          setTelemetry(sample);
+          updateTelemetry(car.id, sample);
+          if (sample.timestamp === 50) {
+            const rt = 0.1 + Math.random() * 0.3;
+            setReaction(rt);
           }
-        );
-        cleanupRef.current.push(cleanup);
-      }
-      
-    } else {
-      if (leftCar) {
-        const cleanup = simulateRace(
-          leftCar.horsepower,
-          leftCar.weight,
-          targetDistance,
-          isRoll,
-          rollSpeedValue,
-          (sample) => {
-            setLeftTelemetry(sample);
-            updateTelemetry(leftCar.id, sample);
-            if (sample.timestamp === 50) {
-              const rt = 0.1 + Math.random() * 0.3;
-              setLeftReaction(rt);
-            }
-          },
-          (result) => {
+        },
+        (result) => {
+          if (laneLabel === "left") {
             resultsRef.current.left = result;
-            checkRaceComplete();
-          }
-        );
-        cleanupRef.current.push(cleanup);
-      }
-      
-      if (rightCar) {
-        const cleanup = simulateRace(
-          rightCar.horsepower,
-          rightCar.weight,
-          targetDistance,
-          isRoll,
-          rollSpeedValue,
-          (sample) => {
-            setRightTelemetry(sample);
-            updateTelemetry(rightCar.id, sample);
-            if (sample.timestamp === 50) {
-              const rt = 0.1 + Math.random() * 0.3;
-              setRightReaction(rt);
-            }
-          },
-          (result) => {
+          } else {
             resultsRef.current.right = result;
-            checkRaceComplete();
           }
-        );
-        cleanupRef.current.push(cleanup);
-      }
+          checkRaceComplete();
+        }
+      );
+      cleanupRef.current.push(cleanup);
+    };
+
+    if (leftIsObd) {
+      startObdLane("left", obdService1, obdData1Ref, leftCar,
+        setLeftTelemetry, setLeftReaction);
+    } else {
+      startSimulatedLane("left", leftCar, setLeftTelemetry, setLeftReaction);
     }
-  }, [currentRace, cars, updateRaceStatus, updateTelemetry, isUsingOBD]);
+
+    if (rightIsObd) {
+      startObdLane("right", obdService2, obdData2Ref, rightCar,
+        setRightTelemetry, setRightReaction);
+    } else {
+      startSimulatedLane("right", rightCar, setRightTelemetry, setRightReaction);
+    }
+  }, [currentRace, cars, updateRaceStatus, updateTelemetry]);
 
   const checkRaceComplete = useCallback(() => {
     if (!currentRace) return;
-    
+
     const { left, right } = resultsRef.current;
     if (!left || !right) return;
-    
+
     const leftCarId = currentRace.participants[0]?.carId;
     const rightCarId = currentRace.participants[1]?.carId;
-    
+
     if (!leftCarId || !rightCarId) return;
-    
+
     const leftResult: RaceResult = {
       carId: leftCarId,
       lane: "left",
@@ -440,7 +426,7 @@ export default function Race() {
       distanceFt: left.distanceFt!,
       falseStart: false,
     };
-    
+
     const rightResult: RaceResult = {
       carId: rightCarId,
       lane: "right",
@@ -457,12 +443,12 @@ export default function Race() {
       distanceFt: right.distanceFt!,
       falseStart: false,
     };
-    
+
     const winnerId = leftResult.elapsedTimeMs < rightResult.elapsedTimeMs ? leftCarId : rightCarId;
-    
+
     cleanupAllSubscriptions();
     completeRace([leftResult, rightResult], winnerId);
-    
+
     setTimeout(() => {
       setLocation("/results");
     }, 1500);
@@ -482,9 +468,17 @@ export default function Race() {
 
   const leftDistance = leftTelemetry?.distanceFt ?? 0;
   const rightDistance = rightTelemetry?.distanceFt ?? 0;
-  
-  const leader = leftDistance > rightDistance ? leftCar?.name : 
+
+  const leader = leftDistance > rightDistance ? leftCar?.name :
                  rightDistance > leftDistance ? rightCar?.name : null;
+
+  const modeLabel = isLeftObd && isRightObd
+    ? "Dual OBD Mode"
+    : isLeftObd
+    ? "Lane 1 OBD Live"
+    : isRightObd
+    ? "Lane 2 OBD Live"
+    : "Simulated Mode";
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
@@ -508,21 +502,20 @@ export default function Race() {
           )}
 
           <div className="flex flex-col items-center justify-center gap-6">
-            {isUsingOBD && (
+            {anyObd ? (
               <Badge variant="outline" className="bg-blue-500/20 border-blue-500 text-blue-400 font-racing">
                 <Bluetooth className="w-3 h-3 mr-1" />
-                Live OBD Mode
+                {modeLabel}
               </Badge>
-            )}
-            {!isUsingOBD && (
+            ) : (
               <Badge variant="outline" className="bg-zinc-500/20 border-zinc-500 text-zinc-400 font-racing">
                 <Car className="w-3 h-3 mr-1" />
                 Simulated Mode
               </Badge>
             )}
-            
+
             <ChristmasTree status={treeStatus} onCountdownComplete={handleCountdownComplete} />
-            
+
             {currentRace.status === "setup" && (
               <Button
                 size="lg"
@@ -534,13 +527,13 @@ export default function Race() {
                 Begin Race
               </Button>
             )}
-            
+
             {(currentRace.status === "staging" || currentRace.status === "countdown") && (
               <div className="text-center space-y-3">
                 <p className="text-amber-500 font-racing uppercase tracking-wider animate-pulse">
                   Staging...
                 </p>
-                
+
                 {currentRace.raceType === "roll" && (
                   <div className="bg-zinc-900/80 rounded-lg p-4 border border-zinc-800">
                     <p className="text-xs text-muted-foreground mb-2 font-racing uppercase">
@@ -548,7 +541,7 @@ export default function Race() {
                     </p>
                     <div className="flex items-center justify-center gap-6">
                       <div className="flex items-center gap-2">
-                        <div 
+                        <div
                           className={`w-3 h-3 rounded-full ${leftAtRollSpeed ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
                           data-testid="indicator-left-roll-ready"
                         />
@@ -557,7 +550,7 @@ export default function Race() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div 
+                        <div
                           className={`w-3 h-3 rounded-full ${rightAtRollSpeed ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
                           data-testid="indicator-right-roll-ready"
                         />
@@ -575,7 +568,7 @@ export default function Race() {
                 )}
               </div>
             )}
-            
+
             {currentRace.status !== "complete" && (
               <Button
                 variant="outline"

@@ -3,18 +3,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { obdService, type OBDPort, type OBDConnectionStatus } from "@/lib/obd-service";
+import { obdService1, obdService2, type OBDPort, type OBDConnectionStatus } from "@/lib/obd-service";
 import { useRace } from "@/lib/race-context";
-import { Bluetooth, BluetoothConnected, BluetoothOff, RefreshCw, Usb, Wifi, AlertCircle, CheckCircle2, Car } from "lucide-react";
+import { Bluetooth, BluetoothConnected, BluetoothOff, RefreshCw, Usb, Wifi, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface OBDConnectionManagerProps {
+  carId: 1 | 2;
+  laneLabel?: string;
   onConnectionChange?: (connected: boolean) => void;
 }
 
-export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManagerProps) {
-  const { dataSource, setDataSource, setObdConnected } = useRace();
+export function OBDConnectionManager({ carId, laneLabel, onConnectionChange }: OBDConnectionManagerProps) {
+  const { dataSource, setDataSource, setObdConnected, setObdConnected2 } = useRace();
+  const obdService = carId === 1 ? obdService1 : obdService2;
+
   const [ports, setPorts] = useState<OBDPort[]>([]);
   const [selectedPort, setSelectedPort] = useState<string>("");
   const [status, setStatus] = useState<OBDConnectionStatus>(obdService.getStatus());
@@ -44,16 +47,20 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
 
   const handleConnect = async () => {
     if (!selectedPort) return;
-    
+
     setIsConnecting(true);
     const success = await obdService.connect(selectedPort);
     setStatus(obdService.getStatus());
     setIsConnecting(false);
-    
+
     if (success) {
       await obdService.startLiveData();
-      setObdConnected(true);
-      setDataSource("obd");
+      if (carId === 1) {
+        setObdConnected(true);
+        setDataSource("obd");
+      } else {
+        setObdConnected2(true);
+      }
       onConnectionChange?.(true);
     }
   };
@@ -61,17 +68,13 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
   const handleDisconnect = async () => {
     await obdService.disconnect();
     setStatus(obdService.getStatus());
-    setObdConnected(false);
-    setDataSource("simulated");
-    onConnectionChange?.(false);
-  };
-
-  const handleDataSourceToggle = (checked: boolean) => {
-    if (checked && status.connected) {
-      setDataSource("obd");
-    } else {
+    if (carId === 1) {
+      setObdConnected(false);
       setDataSource("simulated");
+    } else {
+      setObdConnected2(false);
     }
+    onConnectionChange?.(false);
   };
 
   const getPortIcon = (port: OBDPort) => {
@@ -88,21 +91,16 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
   if (!isElectron) {
     return (
       <Card className="border-amber-500/30 bg-amber-500/5">
-        <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-amber-500/20 rounded-lg">
-              <AlertCircle className="w-6 h-6 text-amber-500" />
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-amber-500/20 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-amber-500" />
             </div>
             <div>
-              <h3 className="font-semibold mb-1">Desktop App Required</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                OBD-II connectivity requires the DynoRace Pro desktop application. 
-                Download the app for Windows or MacOS to connect to your vehicle's diagnostic system.
+              <h3 className="font-semibold text-sm mb-1">Desktop App Required</h3>
+              <p className="text-xs text-muted-foreground">
+                OBD-II connectivity requires the DynoRace Pro desktop application.
               </p>
-              <div className="flex gap-3">
-                <Badge variant="outline">Windows</Badge>
-                <Badge variant="outline">MacOS</Badge>
-              </div>
             </div>
           </div>
         </CardContent>
@@ -110,80 +108,59 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
     );
   }
 
+  const label = laneLabel || `Car ${carId}`;
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className={status.connected ? "border-green-500/30" : ""}>
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <CardTitle className="font-racing uppercase tracking-wider flex items-center gap-2">
+            <CardTitle className="font-racing uppercase tracking-wider flex items-center gap-2 text-base">
               {status.connected ? (
-                <BluetoothConnected className="w-5 h-5 text-green-500" />
+                <BluetoothConnected className="w-4 h-4 text-green-500" />
               ) : (
-                <BluetoothOff className="w-5 h-5 text-muted-foreground" />
+                <BluetoothOff className="w-4 h-4 text-muted-foreground" />
               )}
-              OBD Connection
+              {label} — OBD-II
             </CardTitle>
-            <CardDescription>
-              Connect to your vehicle via Bluetooth OBD-II adapter
+            <CardDescription className="text-xs">
+              Lane {carId} · Bluetooth ELM327 adapter
             </CardDescription>
           </div>
-          <Badge 
+          <Badge
             variant={status.connected ? "default" : "secondary"}
-            className={status.connected ? "bg-green-500" : ""}
+            className={status.connected ? "bg-green-500 text-xs" : "text-xs"}
           >
-            {status.connected ? "Connected" : "Disconnected"}
+            {status.connected ? "Live" : "Disconnected"}
           </Badge>
         </div>
       </CardHeader>
-      
-      <CardContent className="space-y-4">
+
+      <CardContent className="space-y-3">
         {status.connected ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3 bg-green-500/10 rounded-lg border border-green-500/20">
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
-              <div>
-                <div className="font-medium">Connected to {status.portPath}</div>
-                <div className="text-sm text-muted-foreground">
-                  Protocol: {status.protocol}
-                </div>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 p-2 bg-green-500/10 rounded-lg border border-green-500/20">
+              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+              <div className="text-sm">
+                <div className="font-medium">{status.portPath}</div>
+                <div className="text-xs text-muted-foreground">Protocol: {status.protocol}</div>
               </div>
             </div>
 
-            <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Car className="w-4 h-4 text-muted-foreground" />
-                <Label htmlFor="data-source" className="text-sm">
-                  Use Live Vehicle Data
-                </Label>
-              </div>
-              <Switch
-                id="data-source"
-                checked={dataSource === "obd"}
-                onCheckedChange={handleDataSourceToggle}
-                data-testid="switch-data-source"
-              />
-            </div>
-
-            <div className="text-xs text-muted-foreground text-center">
-              {dataSource === "obd" 
-                ? "Racing with live OBD-II telemetry" 
-                : "Using simulated race data"}
-            </div>
-            
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleDisconnect}
-              className="w-full"
-              data-testid="button-disconnect-obd"
+              className="w-full text-sm h-8"
+              data-testid={`button-disconnect-obd-${carId}`}
             >
               Disconnect
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex gap-2">
               <Select value={selectedPort} onValueChange={setSelectedPort}>
-                <SelectTrigger className="flex-1" data-testid="select-obd-port">
+                <SelectTrigger className="flex-1 h-8 text-sm" data-testid={`select-obd-port-${carId}`}>
                   <SelectValue placeholder="Select OBD adapter..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -198,9 +175,7 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
                           {getPortIcon(port)}
                           <span>{port.path}</span>
                           {port.manufacturer && (
-                            <span className="text-xs text-muted-foreground">
-                              ({port.manufacturer})
-                            </span>
+                            <span className="text-xs text-muted-foreground">({port.manufacturer})</span>
                           )}
                         </div>
                       </SelectItem>
@@ -208,21 +183,22 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
                   )}
                 </SelectContent>
               </Select>
-              
+
               <Button
                 variant="outline"
                 size="icon"
                 onClick={scanForPorts}
                 disabled={isScanning}
-                data-testid="button-scan-ports"
+                className="h-8 w-8"
+                data-testid={`button-scan-ports-${carId}`}
               >
-                <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3 h-3 ${isScanning ? "animate-spin" : ""}`} />
               </Button>
             </div>
 
             {status.error && (
-              <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg border border-destructive/20 text-sm text-destructive">
-                <AlertCircle className="w-4 h-4" />
+              <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-lg border border-destructive/20 text-xs text-destructive">
+                <AlertCircle className="w-3 h-3" />
                 {status.error}
               </div>
             )}
@@ -230,25 +206,25 @@ export function OBDConnectionManager({ onConnectionChange }: OBDConnectionManage
             <Button
               onClick={handleConnect}
               disabled={!selectedPort || isConnecting}
-              className="w-full"
-              data-testid="button-connect-obd"
+              className="w-full h-8 text-sm"
+              data-testid={`button-connect-obd-${carId}`}
             >
               {isConnecting ? (
                 <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  <RefreshCw className="w-3 h-3 mr-2 animate-spin" />
                   Connecting...
                 </>
               ) : (
                 <>
-                  <Bluetooth className="w-4 h-4 mr-2" />
+                  <Bluetooth className="w-3 h-3 mr-2" />
                   Connect to OBD-II
                 </>
               )}
             </Button>
 
-            <div className="text-xs text-muted-foreground text-center">
-              Make sure your ELM327 adapter is paired via Bluetooth
-            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              Pair your ELM327 adapter via Bluetooth first
+            </p>
           </div>
         )}
       </CardContent>

@@ -19,33 +19,35 @@ export interface OBDTelemetry {
 
 export interface OBDApi {
   listPorts: () => Promise<OBDPort[]>;
-  connect: (portPath: string) => Promise<{ success: boolean; error?: string }>;
-  disconnect: () => Promise<{ success: boolean; error?: string }>;
-  sendCommand: (command: string) => Promise<string>;
-  startLiveData: () => Promise<{ success: boolean; error?: string }>;
-  stopLiveData: () => Promise<{ success: boolean; error?: string }>;
-  onTelemetry: (callback: (data: OBDTelemetry) => void) => () => void;
-  onData: (callback: (data: string) => void) => () => void;
+  connect: (portPath: string, carId: number) => Promise<{ success: boolean; error?: string }>;
+  disconnect: (carId: number) => Promise<{ success: boolean; error?: string }>;
+  sendCommand: (command: string, carId: number) => Promise<string>;
+  startLiveData: (carId: number) => Promise<{ success: boolean; error?: string }>;
+  stopLiveData: (carId: number) => Promise<{ success: boolean; error?: string }>;
+  onTelemetry: (carId: number, callback: (data: OBDTelemetry) => void) => () => void;
+  onData: (carId: number, callback: (data: string) => void) => () => void;
 }
 
 const obdApi: OBDApi = {
   listPorts: () => ipcRenderer.invoke("obd:list-ports"),
-  connect: (portPath: string) => ipcRenderer.invoke("obd:connect", portPath),
-  disconnect: () => ipcRenderer.invoke("obd:disconnect"),
-  sendCommand: (command: string) => ipcRenderer.invoke("obd:send-command", command),
-  startLiveData: () => ipcRenderer.invoke("obd:start-live-data"),
-  stopLiveData: () => ipcRenderer.invoke("obd:stop-live-data"),
-  
-  onTelemetry: (callback: (data: OBDTelemetry) => void) => {
+  connect: (portPath: string, carId: number) => ipcRenderer.invoke("obd:connect", { portPath, carId }),
+  disconnect: (carId: number) => ipcRenderer.invoke("obd:disconnect", { carId }),
+  sendCommand: (command: string, carId: number) => ipcRenderer.invoke("obd:send-command", { command, carId }),
+  startLiveData: (carId: number) => ipcRenderer.invoke("obd:start-live-data", { carId }),
+  stopLiveData: (carId: number) => ipcRenderer.invoke("obd:stop-live-data", { carId }),
+
+  onTelemetry: (carId: number, callback: (data: OBDTelemetry) => void) => {
+    const channel = `obd:telemetry:${carId}`;
     const handler = (_event: any, data: OBDTelemetry) => callback(data);
-    ipcRenderer.on("obd:telemetry", handler);
-    return () => ipcRenderer.removeListener("obd:telemetry", handler);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
   },
-  
-  onData: (callback: (data: string) => void) => {
+
+  onData: (carId: number, callback: (data: string) => void) => {
+    const channel = `obd:data:${carId}`;
     const handler = (_event: any, data: string) => callback(data);
-    ipcRenderer.on("obd:data", handler);
-    return () => ipcRenderer.removeListener("obd:data", handler);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
   },
 };
 
