@@ -1,0 +1,74 @@
+appId: com.dynoracepro.app
+productName: DynoRace Pro
+copyright: Copyright © 2024 DynoRace Pro
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*.js
+  - package.json
+
+extraMetadata:
+  main: electron/main.js
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: public/icon.ico
+  artifactName: DynoRacePro-${version}-Windows-Setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  installerIcon: public/icon.ico
+  uninstallerIcon: public/icon.ico
+  installerHeaderIcon: public/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DynoRace Pro
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: public/icon.icns
+  artifactName: DynoRacePro-${version}-MacOS.${ext}
+  category: public.app-category.utilities
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: public/icon.png
+  artifactName: DynoRacePro-${version}-Linux.${ext}
+  category: Utility
+
+publish:
+  provider: generic
+  url: https://example.com/releases

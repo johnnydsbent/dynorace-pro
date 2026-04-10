@@ -1,0 +1,29 @@
+[
+  {
+    "id": "car1",
+    "name": "Dyno 1 Car",
+    "makeModel": "2024 Ford Mustang GT",
+    "horsepower": 480,
+    "weight": 3800,
+    "color": "#ef4444",
+    "drivetrain": "RWD"
+  },
+  {
+    "id": "car2",
+    "name": "Dyno 2 Car",
+    "makeModel": "2024 Chevrolet Camaro SS",
+    "horsepower": 455,
+    "weight": 3700,
+    "color": "#3b82f6",
+    "drivetrain": "RWD"
+  },
+  {
+    "name": "BravoSRT",
+    "makeModel": "Dodge Charger SRT Hellcat",
+    "horsepower": 880,
+    "weight": 4400,
+    "color": "#000000",
+    "drivetrain": "RWD",
+    "id": "4407a795-9a8f-4306-b5b7-fd0c31c95fb9"
+  }
+]

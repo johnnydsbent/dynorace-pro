@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.dynorace.pro",
+  "productName": "DynoRace Pro",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/*.js",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.js"
+  },
+  "buildDependenciesFromSource": false,
+  "nodeGypRebuild": false,
+  "npmRebuild": false,
+  "mac": {
+    "category": "public.app-category.utilities",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.png",
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "extendInfo": {
+      "NSBluetoothAlwaysUsageDescription": "DynoRace Pro needs Bluetooth to connect to OBD-II adapters",
+      "NSBluetoothPeripheralUsageDescription": "DynoRace Pro needs Bluetooth to connect to OBD-II adapters"
+    }
+  },
+  "dmg": {
+    "writeUpdateInfo": false,
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "category": "Utility"
+  }
+}
