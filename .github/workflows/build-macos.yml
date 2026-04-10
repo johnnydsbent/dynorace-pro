@@ -23,24 +23,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Build frontend
+      - name: Build frontend and server
         run: npm run build
+      
+      - name: Verify build output
+        run: |
+          echo "=== dist/public contents ==="
+          ls -la dist/public/ || echo "dist/public not found!"
+          echo "=== dist contents ==="
+          ls -la dist/
       
       - name: Compile Electron TypeScript
         run: npx tsc -p electron/tsconfig.json
       
-      - name: Prepare build directory
+      - name: Verify electron compile output
+        run: ls -la electron/*.js
+      
+      - name: Prepare Electron build directory
         run: |
-          mkdir -p electron-build/dist
+          mkdir -p electron-build/dist/public
           mkdir -p electron-build/electron
           mkdir -p electron-build/build
           
-          cp -r client/dist/* electron-build/dist/
+          cp -r dist/public/* electron-build/dist/public/
           cp electron/*.js electron-build/electron/
           cp build/icon.png electron-build/build/ 2>/dev/null || true
           cp build/entitlements.mac.plist electron-build/build/ 2>/dev/null || true
           cp electron-builder.json electron-build/
           cp electron-package.json electron-build/package.json
+          
+          echo "=== electron-build structure ==="
+          find electron-build -not -path '*/node_modules/*' | head -30
       
       - name: Install Electron build dependencies
         working-directory: electron-build
@@ -48,9 +61,12 @@ jobs:
       
       - name: Build macOS DMG
         working-directory: electron-build
-        run: npx electron-builder --mac dmg
+        run: npx electron-builder --mac dmg --x64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: List release artifacts
+        run: ls -lh electron-build/release/ || echo "No release dir"
       
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
@@ -58,6 +74,7 @@ jobs:
           name: DynoRace-Pro-macOS
           path: electron-build/release/*.dmg
           retention-days: 30
+          if-no-files-found: error
       
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')

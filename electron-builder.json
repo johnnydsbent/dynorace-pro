@@ -7,7 +7,7 @@
     "buildResources": "build"
   },
   "files": [
-    "dist/**/*",
+    "dist/public/**/*",
     "electron/*.js",
     "package.json"
   ],
@@ -16,16 +16,12 @@
   },
   "buildDependenciesFromSource": false,
   "nodeGypRebuild": false,
-  "npmRebuild": false,
+  "npmRebuild": true,
   "mac": {
     "category": "public.app-category.utilities",
     "target": [
       {
         "target": "dmg",
-        "arch": ["x64"]
-      },
-      {
-        "target": "zip",
         "arch": ["x64"]
       }
     ],
