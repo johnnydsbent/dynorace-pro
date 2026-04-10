@@ -14,7 +14,6 @@
   "extraMetadata": {
     "main": "electron/main.js"
   },
-  "publish": "never",
   "buildDependenciesFromSource": false,
   "nodeGypRebuild": false,
   "npmRebuild": true,
