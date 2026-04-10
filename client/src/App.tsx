@@ -1,4 +1,6 @@
-import { Switch, Route } from "wouter";
+import { useState } from "react";
+import { Switch, Route, Router } from "wouter";
+import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { RaceProvider } from "@/lib/race-context";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SplashScreen } from "@/components/splash-screen";
 import Home from "@/pages/home";
 import Race from "@/pages/race";
 import Results from "@/pages/results";
@@ -17,12 +20,14 @@ import { Gauge, Thermometer, Monitor as MonitorIcon, Car } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useRace } from "@/lib/race-context";
 
+const isElectron = typeof window !== "undefined" && !!(window as any).electronAPI?.isElectron;
+
 function Header() {
   const [location] = useLocation();
   const { dynoHealth } = useRace();
-  
+
   if (location === "/race" || location === "/monitor") return null;
-  
+
   const hasHotDyno = dynoHealth.some(d => d.status === "hot" || d.status === "critical");
 
   return (
@@ -34,26 +39,26 @@ function Header() {
           </div>
           <span className="font-display font-bold text-lg">DynoRace Pro</span>
         </Link>
-        
+
         <div className="flex items-center gap-3">
-          <Link 
-            href="/garage" 
+          <Link
+            href="/garage"
             className="flex items-center gap-2 px-3 py-2 rounded-lg hover-elevate text-sm font-medium"
             data-testid="link-garage"
           >
             <Car className="w-4 h-4" />
             <span className="hidden sm:inline">Garage</span>
           </Link>
-          <Link 
-            href="/monitor" 
+          <Link
+            href="/monitor"
             className="flex items-center gap-2 px-3 py-2 rounded-lg hover-elevate text-sm font-medium"
             data-testid="link-monitor"
           >
             <MonitorIcon className="w-4 h-4" />
             <span className="hidden sm:inline">Monitor</span>
           </Link>
-          <Link 
-            href="/dyno-health" 
+          <Link
+            href="/dyno-health"
             className={`flex items-center gap-2 px-3 py-2 rounded-lg hover-elevate text-sm font-medium ${hasHotDyno ? "bg-red-500/20 text-red-500" : ""}`}
             data-testid="link-dyno-health"
           >
@@ -68,7 +73,7 @@ function Header() {
   );
 }
 
-function Router() {
+function AppRoutes() {
   return (
     <Switch>
       <Route path="/" component={Home} />
@@ -82,16 +87,33 @@ function Router() {
   );
 }
 
+function AppShell() {
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+      <AppRoutes />
+    </div>
+  );
+}
+
 function App() {
+  const [splashDone, setSplashDone] = useState(false);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <RaceProvider>
           <TooltipProvider>
-            <div className="min-h-screen bg-background">
-              <Header />
-              <Router />
-            </div>
+            {!splashDone && (
+              <SplashScreen onComplete={() => setSplashDone(true)} />
+            )}
+            {isElectron ? (
+              <Router hook={useHashLocation}>
+                <AppShell />
+              </Router>
+            ) : (
+              <AppShell />
+            )}
             <Toaster />
           </TooltipProvider>
         </RaceProvider>
